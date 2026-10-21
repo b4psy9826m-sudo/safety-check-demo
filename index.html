@@ -1,0 +1,466 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>安全確認チェック デモ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=IBM+Plex+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: 左にカメラ＋視線ゾーン図、右に操作と記録。教習原簿のような罫と、計器盤の数字。 */
+:root{
+  --bg:#eef0ec; --panel:#fbfcfa; --ink:#15191c; --sub:#5b646b; --rule:#cfd5d0;
+  --accent:#1f6b4f;         /* 教習所の緑（合格・確認OK） */
+  --on-accent:#ffffff;
+  --hit:#e8a317;            /* 今見ている場所（ウインカーの橙） */
+  --hit-ink:#2a1d00;
+  --warn:#b4372f;
+  --zone:#dfe5e0; --zone-ink:#3d464c;
+  --display:"Zen Kaku Gothic New","Hiragino Sans","Yu Gothic UI","Meiryo",sans-serif;
+  --mono:"IBM Plex Mono",Consolas,"Cascadia Mono",monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#121614; --panel:#1a1f1d; --ink:#e7ebe8; --sub:#9aa39e; --rule:#2f3633;
+  --accent:#5cc49a; --on-accent:#0b2219; --hit:#f2b437; --hit-ink:#231800; --warn:#ef7b70;
+  --zone:#252c29; --zone-ink:#b9c2bd; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#121614; --panel:#1a1f1d; --ink:#e7ebe8; --sub:#9aa39e; --rule:#2f3633;
+  --accent:#5cc49a; --on-accent:#0b2219; --hit:#f2b437; --hit-ink:#231800; --warn:#ef7b70;
+  --zone:#252c29; --zone-ink:#b9c2bd; color-scheme:dark}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--display);font-size:15px;line-height:1.6}
+.wrap{max-width:1180px;margin:0 auto;padding-block:20px 40px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+header{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 16px;margin-bottom:16px}
+h1{font-size:26px;font-weight:900;margin:0;letter-spacing:.02em;text-wrap:balance}
+.tag{font-family:var(--mono);font-size:12px;color:var(--sub);letter-spacing:.08em}
+.grid{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:16px}
+@media (max-width:860px){.grid{grid-template-columns:minmax(0,1fr)}}
+.panel{background:var(--panel);border:1px solid var(--rule);border-radius:12px;padding:16px;min-width:0}
+.cam{position:relative;aspect-ratio:4/3;max-width:100%;background:#000;border-radius:10px;overflow:hidden}
+video{width:100%;height:100%;object-fit:cover;transform:scaleX(-1);display:block}
+.cam .now{position:absolute;left:12px;top:12px;font-weight:900;font-size:28px;padding:4px 14px;border-radius:8px;background:rgba(0,0,0,.6);color:#fff}
+.cam .now.hit{background:var(--hit);color:var(--hit-ink)}
+.cam .ang{position:absolute;left:12px;bottom:12px;font-family:var(--mono);font-size:13px;color:#fff;background:rgba(0,0,0,.55);padding:2px 8px;border-radius:6px}
+.cam .msg{position:absolute;inset:0;display:grid;place-items:center;text-align:center;color:#fff;font-size:17px;padding:24px;background:rgba(0,0,0,.55)}
+.cam .count{position:absolute;inset:0;display:grid;place-items:center;font-size:120px;font-weight:900;color:#fff;text-shadow:0 4px 24px rgba(0,0,0,.6);pointer-events:none}
+.zones{margin-top:14px}
+.zones svg{width:100%;height:auto;display:block}
+.zones .z rect,.zones .z path{fill:var(--zone);stroke:var(--rule);stroke-width:1.5}
+.zones .z text{fill:var(--zone-ink);font-family:var(--display);font-size:15px;font-weight:700}
+.zones .z.off{opacity:.35}
+.zones .z.on rect,.zones .z.on path{fill:var(--hit);stroke:var(--hit)}
+.zones .z.on text{fill:var(--hit-ink)}
+.zones .car{fill:none;stroke:var(--sub);stroke-width:1.5}
+.zones .lbl{fill:var(--sub);font-family:var(--mono);font-size:11px}
+h2{font-size:16px;margin:0 0 10px;font-weight:700}
+.steps{display:flex;gap:6px;margin:0 0 12px;flex-wrap:wrap}
+.steps span{font-size:12px;padding:3px 10px;border-radius:99px;border:1px solid var(--rule);color:var(--sub)}
+.steps span.cur{background:var(--ink);color:var(--panel);border-color:var(--ink)}
+button{font:inherit;font-weight:700;border-radius:10px;border:1px solid var(--rule);background:var(--panel);color:var(--ink);padding:10px 16px;cursor:pointer}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent);font-size:17px;padding:12px 22px}
+button:disabled{opacity:.45;cursor:not-allowed}
+button:focus-visible{outline:3px solid var(--hit);outline-offset:2px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.cal{display:grid;gap:6px;margin:10px 0 14px}
+.cal .it{display:grid;grid-template-columns:28px minmax(0,1fr) auto;gap:10px;align-items:center;padding:8px 10px;border:1px solid var(--rule);border-radius:8px}
+.cal .it.cur{border-color:var(--ink);border-width:2px;padding:7px 9px}
+.cal .no{font-family:var(--mono);font-weight:600;color:var(--sub)}
+.cal .where{font-size:13px;color:var(--sub)}
+.cal .st{font-size:13px;font-weight:700;color:var(--sub)}
+.cal .st.ok{color:var(--accent)}
+.counts{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;margin:4px 0 12px}
+@media (max-width:480px){.counts{grid-template-columns:repeat(3,minmax(0,1fr))}}
+.counts div{border:1px solid var(--rule);border-radius:8px;padding:6px 4px;text-align:center}
+.counts b{display:block;font-family:var(--mono);font-size:24px;font-variant-numeric:tabular-nums}
+.counts small{font-size:11px;color:var(--sub)}
+.log{max-height:260px;overflow:auto;border-top:1px solid var(--rule)}
+.log table{width:100%;border-collapse:collapse;font-size:13px}
+.log td{padding:6px 4px;border-bottom:1px solid var(--rule);font-variant-numeric:tabular-nums}
+.log td.t{font-family:var(--mono);color:var(--sub);white-space:nowrap}
+.log td.d{font-family:var(--mono);text-align:right;white-space:nowrap}
+.log .inf{font-size:11px;color:var(--sub)}
+.empty{color:var(--sub);font-size:13px;padding:10px 0}
+.note{font-size:13px;color:var(--sub);margin:12px 0 0}
+.err{color:var(--warn);font-weight:700}
+details{margin-top:14px;font-size:13px;color:var(--sub)}
+details label{display:grid;grid-template-columns:minmax(0,1fr) 72px;gap:8px;align-items:center;margin:6px 0}
+details input{font:inherit;width:100%;padding:4px 6px;border:1px solid var(--rule);border-radius:6px;background:var(--panel);color:var(--ink)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>安全確認チェック</h1>
+    <span class="tag">AI教習システム ／ 車内カメラ デモ</span>
+  </header>
+
+  <div class="grid">
+    <section class="panel" aria-label="カメラ">
+      <div class="cam">
+        <video id="video" playsinline muted></video>
+        <div class="now" id="now" hidden>正面</div>
+        <div class="ang" id="ang" hidden></div>
+        <div class="count" id="count" hidden></div>
+        <div class="msg" id="camMsg">「カメラを起動」を押すと、ここに映像が出ます。<br>映像はこのパソコンの中だけで処理され、外には送られません。</div>
+      </div>
+
+      <div class="zones" aria-label="どこを見ているか">
+        <svg viewBox="0 0 640 230" role="img" aria-label="運転席から見た確認ポイント">
+          <path class="car" d="M60 70 Q320 20 580 70 L560 170 Q320 150 80 170 Z"/>
+          <text class="lbl" x="320" y="215" text-anchor="middle">運転席（右ハンドル）から見た位置</text>
+          <g class="z" data-z="left_rear"><path d="M8 96 l40 -26 v14 h22 v24 h-22 v14 z"/><text x="12" y="150">左後方</text></g>
+          <g class="z" data-z="left_mirror"><rect x="78" y="96" width="92" height="40" rx="10"/><text x="124" y="122" text-anchor="middle">左ミラー</text></g>
+          <g class="z" data-z="room_mirror"><rect x="240" y="38" width="130" height="34" rx="8"/><text x="305" y="61" text-anchor="middle">ルームミラー</text></g>
+          <g class="z" data-z="front"><rect x="300" y="92" width="140" height="48" rx="10"/><text x="370" y="122" text-anchor="middle">正面</text></g>
+          <g class="z" data-z="right_mirror"><rect x="470" y="96" width="92" height="40" rx="10"/><text x="516" y="122" text-anchor="middle">右ミラー</text></g>
+          <g class="z" data-z="right_rear"><path d="M632 96 l-40 -26 v14 h-22 v24 h22 v14 z"/><text x="628" y="150" text-anchor="end">右後方</text></g>
+        </svg>
+      </div>
+    </section>
+
+    <section class="panel" aria-label="操作">
+      <div class="steps"><span id="s1" class="cur">1 起動</span><span id="s2">2 登録</span><span id="s3">3 計測</span></div>
+
+      <div id="pStart">
+        <h2>カメラを起動</h2>
+        <p class="note" style="margin-top:0">運転席に座ったつもりで、パソコンの正面に座ってください。初回は顔認識AIの読み込みに10秒ほどかかります。</p>
+        <div class="row" style="margin-top:12px"><button class="primary" id="btnStart">カメラを起動</button></div>
+        <p class="note" id="startErr"></p>
+      </div>
+
+      <div id="pCal" hidden>
+        <h2>見る場所を登録</h2>
+        <p class="note" style="margin-top:0">「登録」を押すと3秒数えます。<b>0になるまでにその方向へ顔ごと向けて</b>、1秒止まってください。</p>
+        <div class="cal" id="calList"></div>
+        <div class="row">
+          <button class="primary" id="btnCal">登録</button>
+          <button id="btnSkip">この項目を飛ばす</button>
+          <button id="btnToRun" disabled>計測へ進む</button>
+        </div>
+        <p class="note" id="calMsg"></p>
+      </div>
+
+      <div id="pRun" hidden>
+        <h2>確認した回数</h2>
+        <div class="counts" id="counts"></div>
+        <div class="row" style="margin-bottom:10px">
+          <button id="btnReset">回数をリセット</button>
+          <button id="btnCsv">記録をCSVで保存</button>
+          <button id="btnRecal">登録し直す</button>
+        </div>
+        <div class="log"><table><tbody id="log"></tbody></table><div class="empty" id="logEmpty">まだ記録はありません。右ミラーの方向へ顔を向けてみてください。</div></div>
+        <details>
+          <summary>判定の細かい設定</summary>
+          <label for="optTol">ミラーの判定範囲（度）<input id="optTol" type="number" min="4" max="30" step="1" value="12"></label>
+          <label for="optMin">確認とみなす最短（秒）<input id="optMin" type="number" min="0.05" max="2" step="0.05" value="0.25"></label>
+          <label for="optGap">続きとみなす途切れ（秒）<input id="optGap" type="number" min="0" max="1" step="0.05" value="0.2"></label>
+        </details>
+      </div>
+
+      <p class="note">しくみ：顔認識AI（Google MediaPipe）が顔の向きを1秒に約30回読み取り、登録した方向と比べて「どこを見たか」を決めます。正面以外を0.25秒以上見たら1回とカウントします。</p>
+    </section>
+  </div>
+</div>
+
+<script>
+/* ===== 判定ロジック（PC版 head_check.py と同じ） ===== */
+const ZONES = {
+  front:        {ja:"正面",         where:"フロントガラスの正面",                side:0},
+  room_mirror:  {ja:"ルームミラー", where:"左上（机なら左上の天井の角）",        side:0},
+  right_mirror: {ja:"右ミラー",     where:"右のドアミラー（机なら右の壁）",      side:+1},
+  left_mirror:  {ja:"左ミラー",     where:"左のドアミラー（机なら左の壁）",      side:-1},
+  right_rear:   {ja:"右後方目視",   where:"右後ろへ振り向く（顔が映る範囲で最大）", side:+1},
+  left_rear:    {ja:"左後方目視",   where:"左後ろへ振り向く（顔が映る範囲で最大）", side:-1},
+};
+const ORDER = ["front","room_mirror","right_mirror","left_mirror","right_rear","left_rear"];
+const CHECK = ["room_mirror","right_mirror","left_mirror","right_rear","left_rear"];
+const REAR = ["right_rear","left_rear"];
+const JA = Object.fromEntries([...ORDER.map(k=>[k,ZONES[k].ja]),["other","その他"],["no_face","顔なし"]]);
+const wrap = a => ((a + 180) % 360 + 360) % 360 - 180;
+
+function matrixToAngles(m){ // m: (r,c) => value
+  const yaw = Math.atan2(m(0,2), m(2,2)) * 180/Math.PI;
+  const pitch = Math.asin(Math.max(-1, Math.min(1, -m(1,2)))) * 180/Math.PI;
+  const roll = Math.atan2(m(1,0), m(1,1)) * 180/Math.PI;
+  return [yaw, pitch, roll];
+}
+
+class Classifier {
+  constructor(targets, tolerance=12, minTol=4){
+    if(!targets.front) throw new Error("正面が未登録です");
+    const [fy, fp] = targets.front;
+    this.front = [fy, fp];
+    this.rel = {};
+    for(const k in targets) this.rel[k] = [wrap(targets[k][0]-fy), targets[k][1]-fp];
+    let score = 0;
+    for(const k in this.rel) if(ZONES[k].side) score += ZONES[k].side * this.rel[k][0];
+    if(score === 0) throw new Error("右ミラーか左ミラーを登録してください");
+    this.sign = score > 0 ? 1 : -1;
+    this.tol = {};
+    for(const k in this.rel){
+      const [y,p] = this.rel[k];
+      const others = Object.entries(this.rel).filter(([k2])=>k2!==k).map(([,v])=>Math.hypot(y-v[0], p-v[1]));
+      const half = others.length ? Math.min(...others)/2 : tolerance;
+      this.tol[k] = k === "front" ? Math.max(minTol, half) : Math.max(minTol, Math.min(tolerance, half));
+    }
+    const rears = REAR.filter(k=>this.rel[k]).map(k=>Math.abs(this.rel[k][0]));
+    const sides = ["right_mirror","left_mirror"].filter(k=>this.rel[k]).map(k=>Math.abs(this.rel[k][0]));
+    this.lostThreshold = rears.length ? 0.6*Math.min(...rears) : sides.length ? Math.max(...sides)+10 : 35;
+  }
+  relOf(yaw, pitch){ return [wrap(yaw-this.front[0]), pitch-this.front[1]]; }
+  classify(ry, rp){
+    for(const k of REAR){
+      if(!this.rel[k]) continue;
+      const s = ZONES[k].side * this.sign;
+      if(s*ry >= s*this.rel[k][0] - this.tol[k]) return k;
+    }
+    let best = "other", bd = Infinity;
+    for(const k in this.rel){
+      const d = Math.hypot(ry-this.rel[k][0], rp-this.rel[k][1]);
+      if(d <= this.tol[k] && d < bd){ best = k; bd = d; }
+    }
+    return best;
+  }
+  classifyLost(lastRy){
+    if(lastRy != null && Math.abs(lastRy) >= this.lostThreshold)
+      return [(lastRy*this.sign) > 0 ? "right_rear" : "left_rear", true];
+    return ["no_face", false];
+  }
+}
+
+class Detector {
+  constructor(minDur=0.25, gap=0.2){ this.minDur=minDur; this.gap=gap; this.seg=null; this.last=0; this.pending=null; this.prev=null; this.dt=0; }
+  update(t, zone, ry, rp, inferred=false){
+    if(this.prev!=null && t-this.prev>0 && t-this.prev<1) this.dt = this.dt===0 ? t-this.prev : 0.9*this.dt + 0.1*(t-this.prev);
+    this.prev = t;
+    const out = [];
+    if(this.seg && zone===this.seg.zone){ this._extend(t, ry, rp, inferred); this.pending=null; return out; }
+    if(this.seg && t-this.last > this.gap) out.push(...this._close());
+    if(!this.seg){
+      if(CHECK.includes(zone)){
+        const start = this.pending && this.pending[0]===zone ? this.pending[1] : t;
+        this.seg = {zone, start, end:t, peakYaw:ry??0, peakPitch:rp??0, inferred, frames:1};
+        this.last = t;
+      }
+      this.pending = null;
+    } else if(!this.pending || this.pending[0]!==zone) this.pending = [zone, t];
+    return out;
+  }
+  flush(){ return this.seg ? this._close() : []; }
+  _extend(t, ry, rp, inferred){
+    const s = this.seg; s.end=t; s.frames++; s.inferred = s.inferred && inferred;
+    if(ry!=null && Math.abs(ry) > Math.abs(s.peakYaw)){ s.peakYaw=ry; s.peakPitch=rp??0; }
+    this.last = t;
+  }
+  _close(){
+    const s = this.seg; this.seg = null;
+    if(!s) return [];
+    s.end += this.dt;
+    return (s.end - s.start) >= this.minDur ? [s] : [];
+  }
+}
+
+class Smoother {
+  constructor(a=0.5){ this.a=a; this.v=null; }
+  push(ang){
+    if(!ang){ this.v=null; return null; }
+    if(!this.v){ this.v=[...ang]; return [...this.v]; }
+    const d = ang.map((x,i)=>x-this.v[i]); d[0]=wrap(d[0]);
+    this.v = this.v.map((x,i)=>x+this.a*d[i]);
+    return [...this.v];
+  }
+}
+window.HC = {Classifier, Detector, Smoother, matrixToAngles, wrap};
+</script>
+
+<script type="module">
+const {Classifier, Detector, Smoother, matrixToAngles} = window.HC;
+const ZONES_ORDER = ["front","room_mirror","right_mirror","left_mirror","right_rear","left_rear"];
+const ZJA = {front:"正面",room_mirror:"ルームミラー",right_mirror:"右ミラー",left_mirror:"左ミラー",right_rear:"右後方目視",left_rear:"左後方目視",other:"その他",no_face:"顔なし"};
+const WHERE = {front:"フロントガラスの正面",room_mirror:"左上（机なら左上の天井の角）",right_mirror:"右のドアミラー（机なら右の壁）",left_mirror:"左のドアミラー（机なら左の壁）",right_rear:"右後ろへ振り向く（顔が映る範囲で最大）",left_rear:"左後ろへ振り向く（顔が映る範囲で最大）"};
+const CHECKS = ["room_mirror","right_mirror","left_mirror","right_rear","left_rear"];
+const MP_VER = "0.10.14";
+const MODEL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
+const $ = id => document.getElementById(id);
+
+const state = {
+  lm:null, video:$("video"), targets:{}, calIdx:0, mode:"start",
+  sampling:null, cls:null, det:null, sm:new Smoother(0.5),
+  lastRy:null, lastSeen:-1e9, events:[], counts:{}, rafOn:false, lastTs:-1,
+};
+try{ const s = JSON.parse(localStorage.getItem("hc_targets")||"null"); if(s && s.front) state.targets = s; }catch(e){}
+const saveTargets = () => { try{ localStorage.setItem("hc_targets", JSON.stringify(state.targets)); }catch(e){} };
+
+function step(n){ ["s1","s2","s3"].forEach((id,i)=>$(id).classList.toggle("cur", i===n-1)); }
+function show(p){ ["pStart","pCal","pRun"].forEach(id=>$(id).hidden = id!==p); }
+function zoneOn(z){ document.querySelectorAll(".zones .z").forEach(g=>g.classList.toggle("on", g.dataset.z===z)); }
+function zoneAvail(){ document.querySelectorAll(".zones .z").forEach(g=>g.classList.toggle("off", !state.targets[g.dataset.z])); }
+
+async function loadMP(){
+  const urls = [
+    `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VER}/vision_bundle.mjs`,
+    `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VER}/+esm`,
+  ];
+  let mod, lastErr;
+  for(const u of urls){ try{ mod = await import(u); break; }catch(e){ lastErr = e; } }
+  if(!mod) throw lastErr || new Error("load failed");
+  const {FaceLandmarker, FilesetResolver} = mod;
+  const fs = await FilesetResolver.forVisionTasks(`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VER}/wasm`);
+  const opts = d => ({baseOptions:{modelAssetPath:MODEL, delegate:d}, runningMode:"VIDEO", numFaces:1, outputFacialTransformationMatrixes:true});
+  try{ return await FaceLandmarker.createFromOptions(fs, opts("GPU")); }
+  catch(e){ return await FaceLandmarker.createFromOptions(fs, opts("CPU")); }
+}
+
+$("btnStart").addEventListener("click", async () => {
+  const b = $("btnStart"); b.disabled = true; $("startErr").textContent = "";
+  try{
+    $("camMsg").textContent = "カメラの使用を許可してください…";
+    const stream = await navigator.mediaDevices.getUserMedia({video:{width:{ideal:1280}, height:{ideal:720}, facingMode:"user"}, audio:false});
+    state.video.srcObject = stream; await state.video.play();
+    $("camMsg").textContent = "顔認識AIを読み込んでいます…（初回は10秒ほど）";
+    state.lm = await loadMP();
+    $("camMsg").hidden = true; $("now").hidden = false; $("ang").hidden = false;
+    loop();
+    if(state.targets.front && (state.targets.right_mirror || state.targets.left_mirror)){ toRun(); }
+    else toCal();
+  }catch(e){
+    console.error(e);
+    b.disabled = false;
+    $("camMsg").hidden = false;
+    $("camMsg").textContent = "起動できませんでした。";
+    $("startErr").innerHTML = e && e.name === "NotAllowedError"
+      ? '<span class="err">カメラが許可されていません。</span>アドレスバー左のカメラのマークから「許可」にして、もう一度押してください。'
+      : '<span class="err">読み込みに失敗しました。</span>インターネットにつながっているか確認して、もう一度押してください。（' + (e && e.message ? e.message : e) + '）';
+  }
+});
+
+/* ---- 登録 ---- */
+function renderCal(){
+  $("calList").innerHTML = ZONES_ORDER.map((k,i)=>`
+    <div class="it ${i===state.calIdx?'cur':''}">
+      <span class="no">${i+1}</span>
+      <span><b>${ZJA[k]}</b><br><span class="where">${WHERE[k]}</span></span>
+      <span class="st ${state.targets[k]?'ok':''}">${state.targets[k]?'登録済み':'未登録'}</span>
+    </div>`).join("");
+  const ready = !!state.targets.front && !!(state.targets.right_mirror || state.targets.left_mirror);
+  $("btnToRun").disabled = !ready;
+  $("btnCal").textContent = state.calIdx < ZONES_ORDER.length ? `「${ZJA[ZONES_ORDER[state.calIdx]]}」を登録` : "全部登録しました";
+  $("btnCal").disabled = state.calIdx >= ZONES_ORDER.length || !!state.sampling;
+  $("btnSkip").disabled = state.calIdx >= ZONES_ORDER.length || state.calIdx === 0 || !!state.sampling;
+  zoneAvail();
+}
+function toCal(){ state.mode="cal"; state.calIdx = 0; step(2); show("pCal"); $("calMsg").textContent=""; renderCal(); }
+$("btnSkip").addEventListener("click", () => { state.calIdx++; renderCal(); });
+$("btnCal").addEventListener("click", () => {
+  const k = ZONES_ORDER[state.calIdx]; let n = 3;
+  state.sampling = {k, samples:[], until:0, counting:true};
+  renderCal();
+  const c = $("count"); c.hidden = false; c.textContent = n;
+  $("calMsg").textContent = `${ZJA[k]}の方向へ顔を向けてください`;
+  const tick = setInterval(() => {
+    n--;
+    if(n > 0){ c.textContent = n; return; }
+    clearInterval(tick); c.textContent = "●";
+    state.sampling.counting = false; state.sampling.until = performance.now() + 1000;
+  }, 1000);
+});
+function finishSample(){
+  const {k, samples} = state.sampling; state.sampling = null; $("count").hidden = true;
+  if(samples.length < 5){
+    $("calMsg").innerHTML = `<span class="err">顔が見えませんでした。</span>少し正面寄りに戻して、もう一度「登録」を押してください。`;
+  } else {
+    const med = a => { const s=[...a].sort((x,y)=>x-y); return s[Math.floor(s.length/2)]; };
+    state.targets[k] = [med(samples.map(s=>s[0])), med(samples.map(s=>s[1]))];
+    saveTargets();
+    $("calMsg").textContent = `${ZJA[k]}を登録しました。`;
+    state.calIdx++;
+  }
+  renderCal();
+}
+$("btnToRun").addEventListener("click", toRun);
+$("btnRecal").addEventListener("click", () => { state.targets = {}; saveTargets(); toCal(); });
+
+/* ---- 計測 ---- */
+function opt(id, d){ const v = parseFloat($(id).value); return isFinite(v) ? v : d; }
+function buildRun(){
+  state.cls = new Classifier(state.targets, opt("optTol",12));
+  state.det = new Detector(opt("optMin",0.25), opt("optGap",0.2));
+}
+function toRun(){
+  try{ buildRun(); }catch(e){ $("calMsg").innerHTML = `<span class="err">${e.message}</span>`; return; }
+  state.mode = "run"; step(3); show("pRun"); zoneAvail(); renderCounts(); renderLog();
+}
+["optTol","optMin","optGap"].forEach(id => $(id).addEventListener("change", () => { try{ buildRun(); }catch(e){} }));
+$("btnReset").addEventListener("click", () => { state.events = []; renderCounts(); renderLog(); });
+
+function renderCounts(){
+  const c = {}; state.events.forEach(e => c[e.zone] = (c[e.zone]||0)+1);
+  $("counts").innerHTML = CHECKS.map(k => `<div><b>${c[k]||0}</b><small>${ZJA[k]}</small></div>`).join("");
+}
+const hms = t => { const d = new Date(t); return d.toLocaleTimeString("ja-JP",{hour12:false}) + "." + String(d.getMilliseconds()).padStart(3,"0").slice(0,1); };
+function renderLog(){
+  $("logEmpty").hidden = state.events.length > 0;
+  $("log").innerHTML = state.events.slice().reverse().slice(0,50).map(e =>
+    `<tr><td class="t">${hms(e.start)}</td><td>${ZJA[e.zone]}${e.inferred?' <span class="inf">推定</span>':''}</td><td class="d">${((e.end-e.start)/1000).toFixed(2)} 秒</td></tr>`).join("");
+}
+$("btnCsv").addEventListener("click", () => {
+  const head = "開始時刻,場所,秒数,最大の左右角度,推定";
+  const rows = state.events.map(e => [new Date(e.start).toISOString(), ZJA[e.zone], ((e.end-e.start)/1000).toFixed(2), e.peakYaw.toFixed(1), e.inferred?1:0].join(","));
+  const blob = new Blob(["﻿" + [head, ...rows].join("\r\n")], {type:"text/csv"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "安全確認_" + new Date().toISOString().slice(0,19).replace(/[-:T]/g,"") + ".csv";
+  document.body.appendChild(a); a.click(); a.remove();
+});
+
+/* ---- 毎フレーム ---- */
+function loop(){
+  if(state.rafOn) return; state.rafOn = true;
+  const v = state.video;
+  const frame = () => {
+    requestAnimationFrame(frame);
+    if(!state.lm || v.readyState < 2) return;
+    let ts = performance.now(); if(ts <= state.lastTs) ts = state.lastTs + 1; state.lastTs = ts;
+    let res; try{ res = state.lm.detectForVideo(v, ts); }catch(e){ return; }
+    let ang = null;
+    const mats = res && res.facialTransformationMatrixes;
+    if(mats && mats.length){
+      const d = mats[0].data; // 列優先(column-major)の4x4
+      ang = matrixToAngles((r,c) => d[c*4 + r]);
+    }
+    const now = Date.now();
+
+    if(state.sampling){
+      if(!state.sampling.counting && ang) state.sampling.samples.push([ang[0], ang[1]]);
+      if(!state.sampling.counting && performance.now() >= state.sampling.until) finishSample();
+    }
+
+    const s = state.sm.push(ang);
+    let zone = "no_face", inferred = false, ry = null, rp = null;
+    if(state.mode === "run" && state.cls){
+      if(s){ [ry, rp] = state.cls.relOf(s[0], s[1]); zone = state.cls.classify(ry, rp); state.lastRy = ry; state.lastSeen = now; }
+      else{ const hint = now - state.lastSeen <= 1000 ? state.lastRy : null; [zone, inferred] = state.cls.classifyLost(hint); }
+      for(const e of state.det.update(now/1000, zone, ry, rp, inferred)){
+        state.events.push({...e, start:e.start*1000, end:e.end*1000});
+        renderCounts(); renderLog();
+      }
+      $("now").textContent = ZJA[zone] + (inferred ? "（推定）" : "");
+      $("now").classList.toggle("hit", CHECKS.includes(zone));
+      zoneOn(zone);
+      $("ang").textContent = ry==null ? "顔が見えません" : `左右 ${ry>=0?'+':''}${ry.toFixed(1)}°  上下 ${rp>=0?'+':''}${rp.toFixed(1)}°`;
+    } else {
+      $("now").textContent = s ? "顔を検出中" : "顔が見えません";
+      $("now").classList.remove("hit");
+      zoneOn(state.sampling && !state.sampling.counting ? state.sampling.k : (state.sampling ? state.sampling.k : null));
+      $("ang").textContent = s ? `左右 ${s[0].toFixed(1)}°  上下 ${s[1].toFixed(1)}°` : "顔が見えません";
+    }
+  };
+  requestAnimationFrame(frame);
+}
+zoneAvail();
+</script>
+</body>
+</html>
